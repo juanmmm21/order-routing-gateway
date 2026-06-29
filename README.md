@@ -267,6 +267,17 @@ mypy src
 
 ---
 
+## Troubleshooting
+
+| Síntoma | Causa probable | Solución |
+|---------|----------------|----------|
+| `market price is required for paper routing` | No hay tick anterior a `submitted_at` | Asegura que `--ticks` cubra el rango temporal de las órdenes |
+| `orders file is empty` | JSONL sin líneas válidas | Verifica formato y campos obligatorios |
+| `unsupported symbol for coinbase` | Símbolo no mapeable a `product_id` | Usa formato `BTCUSDT` o `BTC-USD` |
+| Orden rechazada en modo live | API key inválida o sin firma HMAC | Usa `--mode paper` para desarrollo; ver roadmap para auth completa |
+
+---
+
 ## Licencia
 
 MIT

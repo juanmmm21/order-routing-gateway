@@ -1,65 +1,65 @@
 # order-routing-gateway
 
-Capa de abstracción de red que traduce **órdenes internas** del sistema a llamadas REST de exchanges (Binance, Coinbase) o a un entorno de **paper trading** simulado. Octavo módulo del ecosistema [quant-core-infra](https://github.com/juanmmm21/quant-core-infra).
+Network abstraction layer that translates **internal orders** from the system into exchange REST calls (Binance, Coinbase) or into a simulated **paper trading** environment. Eighth module of the [quant-core-infra](https://github.com/juanmmm21/quant-core-infra) ecosystem.
 
-Repositorio: [github.com/juanmmm21/order-routing-gateway](https://github.com/juanmmm21/order-routing-gateway)
-
----
-
-## Qué es y qué problema resuelve
-
-El core de trading emite órdenes en un formato canónico (`InternalOrder`), pero cada exchange exige payloads REST distintos: nombres de campos, convenciones de símbolo, tipos de orden y cabeceras de autenticación.
-
-Acoplar la lógica de estrategia o backtest directamente a la API de un exchange hace imposible cambiar de plataforma sin reescribir código. Este módulo resuelve ese problema con el patrón **Gateway + Adapter**: una sola línea de configuración (`exchange`, `mode`) determina el destino sin tocar el core.
+Repository: [github.com/juanmmm21/order-routing-gateway](https://github.com/juanmmm21/order-routing-gateway)
 
 ---
 
-## Rol en quant-core-infra
+## What it is and what problem it solves
+
+The trading core emits orders in a canonical format (`InternalOrder`), but each exchange requires different REST payloads: field names, symbol conventions, order types, and authentication headers.
+
+Coupling strategy or backtest logic directly to an exchange's API makes it impossible to switch platforms without rewriting code. This module solves that problem with the **Gateway + Adapter** pattern: a single configuration line (`exchange`, `mode`) determines the destination without touching the core.
+
+---
+
+## Role in quant-core-infra
 
 ```text
-alpha-signal-generator ──► señales ──► event-driven-backtester ──► órdenes internas
+alpha-signal-generator ──► signals ──► event-driven-backtester ──► internal orders
                                                                           │
                                                                           ▼
                                                                order-routing-gateway
                                                                           │
                                     ┌─────────────────────────────────────┴──────────────────────┐
                                     ▼                                                            ▼
-                            modo paper (simulado)                                      modo live (REST API)
+                            paper mode (simulated)                                      live mode (REST API)
                                     │                                                            │
                                     ▼                                                            ▼
                          trade-audit-logger ◄────────────────────────────────────── exchange (Binance/Coinbase)
 ```
 
-Es el **puente entre la lógica de decisión y la ejecución real** (o simulada) en el mercado.
+It's the **bridge between decision logic and real (or simulated) market execution**.
 
 ---
 
-## Objetivo
+## Purpose
 
-Demuestra:
+Demonstrates:
 
-- Patrón Gateway con selección de destino por configuración
-- Adaptadores por exchange (Binance Spot, Coinbase Advanced Trade)
-- Modo paper trading con fills al precio de mercado
-- Modo live con transporte HTTP inyectable y manejo explícito de errores
-- Precios y comisiones con precisión `Decimal`
-- Pipelines JSONL compatibles con órdenes y ticks de referencia
-
----
-
-## Cómo funciona
-
-1. **Configuración:** se define `GatewayConfig` con `exchange` (binance/coinbase) y `mode` (paper/live).
-2. **Ingesta:** las órdenes se cargan desde JSONL como `InternalOrder`.
-3. **Traducción:** el adaptador del exchange convierte la orden interna a un `ExchangeOrderRequest`.
-4. **Enrutamiento:**
-   - **Paper:** fill instantáneo al precio del tick más reciente anterior a `submitted_at`.
-   - **Live:** envío HTTP al endpoint REST del exchange; parseo de ack y fill.
-5. **Salida:** `RoutingResult` con `OrderAcknowledgement` y `RoutedFill` opcional.
+- Gateway pattern with destination selection via configuration
+- Per-exchange adapters (Binance Spot, Coinbase Advanced Trade)
+- Paper trading mode with fills at market price
+- Live mode with injectable HTTP transport and explicit error handling
+- Prices and commissions with `Decimal` precision
+- JSONL pipelines compatible with orders and reference ticks
 
 ---
 
-## Arquitectura
+## How it works
+
+1. **Configuration:** a `GatewayConfig` is defined with `exchange` (binance/coinbase) and `mode` (paper/live).
+2. **Ingestion:** orders are loaded from JSONL as `InternalOrder`.
+3. **Translation:** the exchange adapter converts the internal order into an `ExchangeOrderRequest`.
+4. **Routing:**
+   - **Paper:** instant fill at the price of the most recent tick before `submitted_at`.
+   - **Live:** HTTP request to the exchange's REST endpoint; ack and fill parsing.
+5. **Output:** `RoutingResult` with `OrderAcknowledgement` and an optional `RoutedFill`.
+
+---
+
+## Architecture
 
 ```text
 InternalOrder
@@ -75,46 +75,46 @@ ExchangeOrderAdapter (Binance / Coinbase)
 ExchangeOrderRequest ──► HTTP POST ──► OrderAcknowledgement + RoutedFill
 ```
 
-### Componentes
+### Components
 
-| Módulo | Responsabilidad |
+| Module | Responsibility |
 |--------|----------------|
-| `models.py` | Tipos de dominio: órdenes, acks, fills, config |
-| `protocols.py` | Interfaces `ExchangeOrderAdapter`, `OrderRouter`, `HttpTransport` |
-| `adapters/binance.py` | Traducción a POST `/api/v3/order` |
-| `adapters/coinbase.py` | Traducción a POST `/api/v3/brokerage/orders` |
-| `paper_router.py` | Simulación de fills al precio de mercado |
-| `live_router.py` | Envío REST con transporte inyectable |
-| `gateway.py` | Factory de router según modo |
-| `ingest.py` | Parsing JSONL |
-| `pipeline.py` | Run end-to-end |
+| `models.py` | Domain types: orders, acks, fills, config |
+| `protocols.py` | `ExchangeOrderAdapter`, `OrderRouter`, `HttpTransport` interfaces |
+| `adapters/binance.py` | Translation to POST `/api/v3/order` |
+| `adapters/coinbase.py` | Translation to POST `/api/v3/brokerage/orders` |
+| `paper_router.py` | Fill simulation at market price |
+| `live_router.py` | REST submission with injectable transport |
+| `gateway.py` | Router factory based on mode |
+| `ingest.py` | JSONL parsing |
+| `pipeline.py` | End-to-end run |
 
-### Decisiones técnicas
+### Technical decisions
 
-- **Decimal** en cantidades, precios y comisiones
-- **Transporte HTTP inyectable** (`MockHttpTransport` en tests, `UrllibHttpTransport` en producción)
-- **Sin dependencias runtime** — solo stdlib para HTTP
-- **Dry-run** vía subcomando `translate` que muestra el payload sin enviar
+- **Decimal** for quantities, prices, and commissions
+- **Injectable HTTP transport** (`MockHttpTransport` in tests, `UrllibHttpTransport` in production)
+- **No runtime dependencies** — stdlib only for HTTP
+- **Dry-run** via the `translate` subcommand, which shows the payload without sending it
 
 ---
 
-## Configuración: `GatewayConfig`
+## Configuration: `GatewayConfig`
 
-| Parámetro | Default | Descripción |
+| Parameter | Default | Description |
 |-----------|---------|-------------|
-| `exchange` | — | `binance` o `coinbase` |
-| `mode` | — | `paper` o `live` |
-| `commission_rate` | `0.001` | Comisión sobre notional ejecutado (paper y parseo de fills) |
+| `exchange` | — | `binance` or `coinbase` |
+| `mode` | — | `paper` or `live` |
+| `commission_rate` | `0.001` | Commission on executed notional (paper and fill parsing) |
 
 ---
 
-## Requisitos
+## Requirements
 
 - Python **3.11+**
 
 ---
 
-## Instalación
+## Installation
 
 ```bash
 cd order-routing-gateway
@@ -125,9 +125,9 @@ pip install -e ".[dev]"
 
 ---
 
-## Uso CLI
+## CLI usage
 
-### Enrutar órdenes en modo paper
+### Route orders in paper mode
 
 ```bash
 order-routing-gateway route \
@@ -139,7 +139,7 @@ order-routing-gateway route \
   --output routing_results.json
 ```
 
-### Traducir una orden al formato del exchange (dry-run)
+### Translate an order into the exchange's format (dry-run)
 
 ```bash
 order-routing-gateway translate \
@@ -148,7 +148,7 @@ order-routing-gateway translate \
   --order-json '{"client_order_id":"ord-1","side":"buy","order_type":"market","quantity":"0.01","submitted_at":"2024-01-01T12:00:00.000Z"}'
 ```
 
-### Salida esperada (extracto)
+### Expected output (excerpt)
 
 ```json
 {
@@ -172,9 +172,9 @@ order-routing-gateway translate \
 
 ---
 
-## Formatos JSONL
+## JSONL formats
 
-### Orden interna
+### Internal order
 
 ```json
 {
@@ -188,9 +188,9 @@ order-routing-gateway translate \
 }
 ```
 
-También acepta `order_id` como alias de `client_order_id` para compatibilidad con `event-driven-backtester` y `market-condition-simulator`.
+Also accepts `order_id` as an alias for `client_order_id`, for compatibility with `event-driven-backtester` and `market-condition-simulator`.
 
-### Tick de referencia (paper mode)
+### Reference tick (paper mode)
 
 ```json
 {
@@ -202,7 +202,7 @@ También acepta `order_id` como alias de `client_order_id` para compatibilidad c
 
 ---
 
-## Uso programático
+## Programmatic usage
 
 ```python
 from datetime import UTC, datetime
@@ -219,7 +219,7 @@ from order_routing_gateway import (
     run_routing_pipeline,
 )
 
-# Pipeline desde archivos
+# Pipeline from files
 results = run_routing_pipeline(
     orders_path="orders.jsonl",
     ticks_path="ticks.jsonl",
@@ -231,7 +231,7 @@ results = run_routing_pipeline(
     ),
 )
 
-# Gateway manual
+# Manual gateway
 gateway = OrderRoutingGateway(
     GatewayConfig(exchange=ExchangeId.BINANCE, mode=RoutingMode.PAPER),
 )
@@ -248,7 +248,7 @@ result = gateway.router.route_order(order)
 
 ---
 
-## Desarrollo
+## Development
 
 ```bash
 pytest -q
@@ -260,24 +260,24 @@ mypy src
 
 ## Roadmap
 
-- [ ] Firma HMAC para autenticación Binance y Coinbase en modo live
-- [ ] Soporte de órdenes limit con time-in-force configurables
-- [ ] Cancelación y consulta de estado de órdenes pendientes
-- [ ] Integración directa con `risk-management-engine` como pre-trade gate
+- [ ] HMAC signing for Binance and Coinbase authentication in live mode
+- [ ] Limit order support with configurable time-in-force
+- [ ] Cancellation and status query for pending orders
+- [ ] Direct integration with `risk-management-engine` as a pre-trade gate
 
 ---
 
 ## Troubleshooting
 
-| Síntoma | Causa probable | Solución |
+| Symptom | Likely cause | Solution |
 |---------|----------------|----------|
-| `market price is required for paper routing` | No hay tick anterior a `submitted_at` | Asegura que `--ticks` cubra el rango temporal de las órdenes |
-| `orders file is empty` | JSONL sin líneas válidas | Verifica formato y campos obligatorios |
-| `unsupported symbol for coinbase` | Símbolo no mapeable a `product_id` | Usa formato `BTCUSDT` o `BTC-USD` |
-| Orden rechazada en modo live | API key inválida o sin firma HMAC | Usa `--mode paper` para desarrollo; ver roadmap para auth completa |
+| `market price is required for paper routing` | No tick before `submitted_at` | Make sure `--ticks` covers the orders' time range |
+| `orders file is empty` | JSONL with no valid lines | Check the format and required fields |
+| `unsupported symbol for coinbase` | Symbol not mappable to `product_id` | Use the `BTCUSDT` or `BTC-USD` format |
+| Order rejected in live mode | Invalid API key or missing HMAC signature | Use `--mode paper` for development; see the roadmap for full auth |
 
 ---
 
-## Licencia
+## License
 
 MIT

@@ -5,9 +5,26 @@ import json
 import logging
 from decimal import Decimal
 
+from order_routing_gateway.binance_client import (
+    BinanceApiError,
+    BinanceCredentials,
+    BinanceSpotClient,
+    ExchangeUnavailableError,
+)
 from order_routing_gateway.ingest import parse_internal_order
-from order_routing_gateway.models import GatewayConfig, parse_exchange_id, parse_routing_mode
-from order_routing_gateway.pipeline import run_routing_pipeline, translate_order_pipeline
+from order_routing_gateway.models import (
+    ExchangeId,
+    GatewayConfig,
+    RoutingMode,
+    parse_exchange_id,
+    parse_routing_mode,
+)
+from order_routing_gateway.pipeline import (
+    run_routing_pipeline,
+    serialize_routing_result,
+    translate_order_pipeline,
+)
+from order_routing_gateway.testnet_router import TestnetOrderRouter
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,7 +44,12 @@ def build_parser() -> argparse.ArgumentParser:
     route.add_argument("--ticks", required=True)
     route.add_argument("--symbol", required=True)
     route.add_argument("--exchange", default="binance", choices=["binance", "coinbase"])
-    route.add_argument("--mode", default="paper", choices=["paper", "live"])
+    route.add_argument(
+        "--mode",
+        default="paper",
+        choices=["paper", "testnet", "live"],
+        help="paper (simulado), testnet (Binance testnet) o live (dinero real, bloqueado).",
+    )
     route.add_argument("--commission-rate", default="0.001")
     route.add_argument("--output", default=None)
 
@@ -39,7 +61,64 @@ def build_parser() -> argparse.ArgumentParser:
     translate.add_argument("--symbol", required=True)
     translate.add_argument("--exchange", default="binance", choices=["binance", "coinbase"])
 
+    testnet_help = "Binance testnet; claves en BINANCE_TESTNET_API_KEY / _API_SECRET."
+    submit = subparsers.add_parser("submit", help=f"Envía una orden. {testnet_help}")
+    submit.add_argument("--order-json", required=True)
+    submit.add_argument("--symbol", required=True)
+    submit.add_argument("--commission-rate", default="0.001")
+    for name, help_text in (
+        ("query", "Consulta una orden por client id"),
+        ("cancel", "Cancela una orden por client id"),
+        ("cancel-all", "Cancela todas las órdenes abiertas del símbolo"),
+        ("open-orders", "Lista órdenes abiertas"),
+        ("account", "Saldos de la cuenta testnet"),
+    ):
+        command = subparsers.add_parser(name, help=f"{help_text}. {testnet_help}")
+        if name != "account":
+            command.add_argument("--symbol", required=True)
+        if name in ("query", "cancel"):
+            command.add_argument("--client-order-id", required=True)
+
     return parser
+
+
+EXIT_UNKNOWN_STATE = 75  # EX_TEMPFAIL: outcome unknown, reconcile with `query`
+
+
+def _testnet_command(args: argparse.Namespace) -> int:
+    """Testnet operations; prints one JSON document. Exit 75 when the outcome is unknown."""
+    client = BinanceSpotClient(BinanceCredentials.from_env())
+    try:
+        if args.command == "submit":
+            payload = json.loads(args.order_json)
+            order = parse_internal_order(payload, default_symbol=args.symbol)
+            config = GatewayConfig(
+                exchange=ExchangeId.BINANCE,
+                mode=RoutingMode.TESTNET,
+                commission_rate=Decimal(args.commission_rate),
+            )
+            print(json.dumps(serialize_routing_result(
+                TestnetOrderRouter(config, client).route_order(order)
+            )))
+        elif args.command == "query":
+            print(json.dumps(client.query_order(symbol=args.symbol,
+                                                client_order_id=args.client_order_id)))
+        elif args.command == "cancel":
+            print(json.dumps(client.cancel_order(symbol=args.symbol,
+                                                 client_order_id=args.client_order_id)))
+        elif args.command == "cancel-all":
+            print(json.dumps(client.cancel_open_orders(symbol=args.symbol)))
+        elif args.command == "open-orders":
+            print(json.dumps(client.open_orders(symbol=args.symbol)))
+        else:
+            print(json.dumps(client.account()))
+    except ExchangeUnavailableError as exc:
+        print(json.dumps({"error": "exchange_unavailable", "detail": str(exc)}))
+        return EXIT_UNKNOWN_STATE
+    except BinanceApiError as exc:
+        print(json.dumps({"error": "rejected", "code": exc.code, "detail": exc.message}))
+        return 2
+    return 0
 
 
 def main() -> None:
@@ -87,6 +166,9 @@ def main() -> None:
         translated = translate_order_pipeline(order, config)
         print(json.dumps(translated, indent=2))
         return
+
+    if args.command in {"submit", "query", "cancel", "cancel-all", "open-orders", "account"}:
+        raise SystemExit(_testnet_command(args))
 
     raise RuntimeError(f"unsupported command: {args.command}")
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
+
 from order_routing_gateway.http_transport import MockHttpTransport
 from order_routing_gateway.live_router import LiveOrderRouter
 from order_routing_gateway.models import (
@@ -15,7 +17,8 @@ from order_routing_gateway.models import (
 )
 
 
-def test_live_router_uses_mock_transport() -> None:
+def test_live_router_uses_mock_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ORDER_ROUTING_ALLOW_REAL_MONEY", "I_UNDERSTAND_THIS_USES_REAL_MONEY")
     order = InternalOrder(
         client_order_id="ord-1",
         symbol="BTCUSDT",

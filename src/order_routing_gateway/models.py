@@ -13,7 +13,8 @@ class ExchangeId(StrEnum):
 
 class RoutingMode(StrEnum):
     PAPER = "paper"
-    LIVE = "live"
+    TESTNET = "testnet"
+    LIVE = "live"  # real money: locked unless ORDER_ROUTING_ALLOW_REAL_MONEY is set
 
 
 class OrderType(StrEnum):

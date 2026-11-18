@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from order_routing_gateway.adapters import create_exchange_adapter
+from order_routing_gateway.binance_client import real_money_endpoint
 from order_routing_gateway.http_transport import UrllibHttpTransport
 from order_routing_gateway.models import (
     GatewayConfig,
@@ -39,6 +40,7 @@ class LiveOrderRouter:
         market_price: PriceTick | None = None,
     ) -> RoutingResult:
         _ = market_price
+        real_money_endpoint()  # real money: refuse unless the operator explicitly unlocked it
         request = self._adapter.build_request(order)
         headers = self._build_auth_headers(request.payload)
 
